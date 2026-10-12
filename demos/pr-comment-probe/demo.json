@@ -1,0 +1,5 @@
+{
+  "title": "PR comment probe",
+  "pitch": "Tiny page to verify Live drafts land on the merged PR.",
+  "steps": [{ "action": "click", "selector": "#b" }, { "action": "wait", "ms": 800 }]
+}
