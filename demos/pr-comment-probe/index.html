@@ -1,0 +1,14 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PR comment probe</title>
+<meta name="description" content="Tiny page to verify Live drafts land on the merged PR.">
+<style>body{font:16px/1.4 system-ui;margin:24px;max-width:40rem}button{font:inherit;padding:.5rem 1rem}</style>
+</head><body>
+<h1>PR comment probe</h1>
+<p>Count: <strong id="n">0</strong></p>
+<button type="button" id="b">Add one</button>
+<script>
+const n=document.getElementById('n'), b=document.getElementById('b');
+b.onclick=()=>{n.textContent=String(+n.textContent+1)};
+</script>
+</body></html>
