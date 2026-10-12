@@ -16,7 +16,7 @@ body:
     validations:
       required: true
   - type: textarea
-    id: what
+    id: spec
     attributes:
       label: What should it do?
       description: What someone does on the page, and what they see.

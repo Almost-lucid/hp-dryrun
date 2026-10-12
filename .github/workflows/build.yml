@@ -1,7 +1,7 @@
 name: build
 on:
   issues:
-    types: [opened, labeled]
+    types: [opened]
 permissions:
   contents: write
   pages: write
@@ -10,7 +10,7 @@ permissions:
   models: read
 concurrency:
   group: build-${{ github.event.issue.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   build:
     if: >-
@@ -44,11 +44,14 @@ jobs:
           import os, re, pathlib
           title = os.environ.get("ISSUE_TITLE") or ""
           body = os.environ.get("ISSUE_BODY") or ""
-          def field(name):
-              m = re.search(rf"###\s*{re.escape(name)}\s*\n+(.+?)(?=\n###|\Z)", body, re.S | re.I)
-              return (m.group(1).strip() if m else "").strip()
-          idea = field("Your idea") or re.sub(r"^New demo:\s*", "", title, flags=re.I).strip() or "demo"
-          what = field("What should it do?") or body.strip() or idea
+          def field(*names):
+              for name in names:
+                  m = re.search(rf"###\s*{re.escape(name)}\s*\n+(.+?)(?=\n###|\Z)", body, re.S | re.I)
+                  if m and m.group(1).strip():
+                      return m.group(1).strip()
+              return ""
+          idea = field("Your idea", "Idea") or re.sub(r"^New demo:\s*", "", title, flags=re.I).strip() or "demo"
+          what = field("What should it do?", "Spec", "What should it do") or body.strip() or idea
           pathlib.Path("/tmp/idea.txt").write_text(idea)
           pathlib.Path("/tmp/what.txt").write_text(what)
           slug = re.sub(r"[^a-z0-9]+", "-", idea.lower()).strip("-")
