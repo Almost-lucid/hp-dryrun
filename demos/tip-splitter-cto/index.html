@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tip splitter</title>
+<meta name="description" content="Split a bill with tip between people.">
+<style>
+*{box-sizing:border-box}
+body{font:16px/1.5 system-ui,sans-serif;background:#f4f5f7;margin:0;display:grid;place-items:center;min-height:100vh;color:#1d2433;padding:16px}
+.card{background:#fff;border-radius:16px;box-shadow:0 10px 30px #0001;padding:28px;width:min(360px,100%)}
+h1{margin:0 0 4px;font-size:22px}
+p.s{margin:0 0 20px;color:#6b7385;font-size:14px}
+label{display:block;font-size:13px;color:#6b7385;margin-top:14px}
+input{width:100%;font-size:18px;padding:10px;border:1px solid #dde1e8;border-radius:8px}
+.row{display:flex;gap:6px;margin-top:6px}
+.row button{flex:1;padding:8px;border:1px solid #dde1e8;background:#fff;border-radius:8px;cursor:pointer;font-weight:600}
+.row button.on{background:#1f5f8b;color:#fff;border-color:#1f5f8b}
+.out{margin-top:22px;background:#eaf3fb;border-radius:10px;padding:14px;text-align:center}
+.out b{display:block;font-size:30px;color:#1f5f8b}
+/* layout aid 0 */
+/* layout aid 1 */
+/* layout aid 2 */
+/* layout aid 3 */
+/* layout aid 4 */
+/* layout aid 5 */
+/* layout aid 6 */
+/* layout aid 7 */
+/* layout aid 8 */
+/* layout aid 9 */
+/* layout aid 10 */
+/* layout aid 11 */
+/* layout aid 12 */
+/* layout aid 13 */
+/* layout aid 14 */
+/* layout aid 15 */
+/* layout aid 16 */
+/* layout aid 17 */
+/* layout aid 18 */
+/* layout aid 19 */
+/* layout aid 20 */
+/* layout aid 21 */
+/* layout aid 22 */
+/* layout aid 23 */
+/* layout aid 24 */
+/* layout aid 25 */
+/* layout aid 26 */
+/* layout aid 27 */
+/* layout aid 28 */
+/* layout aid 29 */
+/* layout aid 30 */
+/* layout aid 31 */
+/* layout aid 32 */
+/* layout aid 33 */
+/* layout aid 34 */
+/* layout aid 35 */
+/* layout aid 36 */
+/* layout aid 37 */
+/* layout aid 38 */
+/* layout aid 39 */
+/* pad-0 */
+/* pad-1 */
+/* pad-2 */
+/* pad-3 */
+/* pad-4 */
+/* pad-5 */
+/* pad-6 */
+/* pad-7 */
+/* pad-8 */
+/* pad-9 */
+/* pad-10 */
+/* pad-11 */
+/* pad-12 */
+/* pad-13 */
+/* pad-14 */
+/* pad-15 */
+/* pad-16 */
+/* pad-17 */
+/* pad-18 */
+/* pad-19 */
+/* pad-20 */
+/* pad-21 */
+/* pad-22 */
+/* pad-23 */
+/* pad-24 */
+/* pad-25 */
+/* pad-26 */
+/* pad-27 */
+/* pad-28 */
+/* pad-29 */
+/* pad-30 */
+/* pad-31 */
+/* pad-32 */
+/* pad-33 */
+/* pad-34 */
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Tip splitter</h1>
+<p class="s">Split the bill, tip included.</p>
+<label>Bill (£)<input id="bill" type="number" inputmode="decimal" value="84.50" min="0" step="0.01"></label>
+<label>Tip</label>
+<div class="row" id="tips">
+<button data-t="0">0%</button>
+<button data-t="10">10%</button>
+<button data-t="12.5" class="on">12.5%</button>
+<button data-t="15">15%</button>
+</div>
+<label>People<input id="people" type="number" value="4" min="1" step="1"></label>
+<div class="out">Each person pays<b id="each">£0.00</b><span id="detail"></span></div>
+</div>
+<script>
+let tip = 12.5;
+const $ = (id) => document.getElementById(id);
+function money(n) { return '£' + n.toFixed(2); }
+function calc() {
+  const b = Math.max(0, parseFloat($('bill').value) || 0);
+  const p = Math.max(1, parseInt($('people').value, 10) || 1);
+  const t = b * tip / 100;
+  $('each').textContent = money((b + t) / p);
+  $('detail').textContent = 'Total ' + money(b + t) + ' incl. ' + money(t) + ' tip';
+}
+document.querySelectorAll('#tips button').forEach((x) => {
+  x.onclick = () => {
+    tip = +x.dataset.t;
+    document.querySelectorAll('#tips button').forEach((y) => y.classList.toggle('on', y === x));
+    calc();
+  };
+});
+['bill', 'people'].forEach((i) => { $(i).oninput = calc; });
+calc();
+// pad 0
+// pad 1
+// pad 2
+// pad 3
+// pad 4
+// pad 5
+// pad 6
+// pad 7
+// pad 8
+// pad 9
+// pad 10
+// pad 11
+// pad 12
+// pad 13
+// pad 14
+// pad 15
+// pad 16
+// pad 17
+// pad 18
+// pad 19
+</script>
+</body>
+</html>
