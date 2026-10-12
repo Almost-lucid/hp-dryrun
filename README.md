@@ -6,18 +6,46 @@ From one short idea to a **live demo**, a **video**, and **two post drafts** —
 
 1. **Make your copy.** Click **Use this template → Create a new repository**, name it, then open **Settings → Pages → Source: GitHub Actions**.
 
-2. **Open a New demo.** Click **[New demo](../../issues/new?template=new-demo.yml)** (on your copy: `Issues → New issue → New demo`). Fill in **Your idea** and **What should it do?**, then Submit.
+2. **Open a New demo.** On a **laptop where you’re signed into GitHub**, either click **[New demo](../../issues/new?template=new-demo.yml)** and fill the form, or use the free ChatGPT prompt below to get a prefilled link.
 
 3. **Watch the issue.** You’ll see `Building…`, then a **Live** link, a **video** link, and LinkedIn / X drafts. **Nothing has been posted.**
 
-Optional: ask free ChatGPT to help write the idea and “what should it do?”, then paste that into the form.
+### Free ChatGPT → page + prefilled New demo link
+
+Do this on a **laptop where you’re signed into GitHub**. Paste the whole block into ChatGPT (free is fine):
+
+```text
+I want to open a GitHub "New demo" issue for my Host and Post repo.
+
+Ask me once for my GitHub username and repository name, then help me shape one small demo idea (one screen, one main action).
+
+Then write the full page in ONE fenced code block. Rules:
+- Complete file from <!doctype html> through </html> — never abbreviate, never say "rest unchanged"
+- Under 300 lines; plain HTML/CSS/JS only
+- No frameworks, CDN, <script src>, fetch/XHR/WebSocket, backend, accounts, API keys, or personal data
+- Works at phone width; sample/placeholder data only; include <title> and <meta name="description">
+- If it would need a server, fake it with sample data
+
+Then output:
+1) A short plain-text idea and a 3–5 line spec.
+2) The ONE code block with the full HTML.
+3) ONE URL (URL-encoded) with only title, idea, and spec (the page is too long for a URL), params in this order:
+https://github.com/<username>/<repo>/issues/new?template=new-demo.yml&title=<urlencode("New demo: " + idea)>&idea=<urlencode(idea)>&spec=<urlencode(spec)>
+
+Tell me to: tap the link, paste the code block into the form field "Paste your page", then click Submit.
+If the link breaks: Issues → New demo, paste idea/spec/page myself.
+```
+
+Example link (page is pasted into the form, not the URL):
+
+https://github.com/Almost-lucid/hp-dryrun/issues/new?template=new-demo.yml&title=New%20demo%3A%20tip%20splitter&idea=tip%20splitter&spec=Enter%20a%20bill%20in%20pounds%2C%20pick%20a%20tip%20percent%2C%20set%20how%20many%20people%2C%20and%20show%20what%20each%20person%20pays.
 
 ### What we won’t host
 No accounts, no real personal data, no secret API keys, no backends. Demos are small public static pages with sample data. If the idea needs a server, the build should fake it with placeholders.
 
-## Paste fallback (works with free ChatGPT)
+## File paste fallback
 
-If the one-click build isn’t available, paste a page in by hand:
+If you prefer not to use the issue form, you can still commit a file by hand:
 
 1. Ask ChatGPT (or any AI) something like:
 
@@ -42,7 +70,8 @@ In plain terms: a scoped AI can only change this one repo, and your review (or t
 
 ## Optional: Lock it down
 
-Needs admin. Without a ruleset, nothing technically stops a write-access account pushing to `main`. Create labels `build`, `replace`, and `protocol`, then a branch ruleset on `main` requiring checks `smoke-and-record` and `slug-guard` (and `build` if you want).
+Needs admin. Without a ruleset, nothing technically stops a write-access account pushing to `main`.
+**Note:** the one-click issue build commits to `main` as `github-actions[bot]`. If your ruleset requires a pull request, add a bypass for GitHub Actions — or skip Lock it down and use the paste route. Create labels `build`, `replace`, and `protocol`, then a branch ruleset on `main` requiring checks `smoke-and-record` and `slug-guard` (and `build` if you want).
 
 ```sh
 gh label create build -R <you>/<repo> -d "Build a demo from a New demo issue"
@@ -71,7 +100,7 @@ Leave empty unless you use a custom domain.
 
 ## Good to know
 - Everything published on Pages is public. Placeholder data only.
-- The one-click issue build uses GitHub Models with your `GITHUB_TOKEN` (no secrets to add). If Models isn’t available on the account, use the paste fallback.
+- Prefer pasting a complete page into **Paste your page** on the New demo form (ChatGPT prompt above). If that field is empty, the workflow tries GitHub Models; when Models isn’t available it says so in a comment.
 - Template edits need the `protocol` label to pass `slug-guard`.
 - Run locally: `npm install && npx playwright install --with-deps chromium`, then `node tools/smoke_record.mjs <slug>` (needs `ffmpeg`).
 

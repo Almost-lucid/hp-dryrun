@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         One short idea. Keep it small — one screen, one main action.
+        Prefer pasting a complete page below (from ChatGPT). Leave Paste your page empty only if you want GitHub to try generating one.
   - type: input
     id: idea
     attributes:
@@ -23,3 +24,12 @@ body:
       placeholder: Enter a bill, pick a tip, split between people.
     validations:
       required: true
+  - type: textarea
+    id: page
+    attributes:
+      label: Paste your page
+      description: Optional. Full index.html from ChatGPT (one complete file). If you paste here, we skip AI generation.
+      placeholder: "<!doctype html>…</html>"
+      render: html
+    validations:
+      required: false
