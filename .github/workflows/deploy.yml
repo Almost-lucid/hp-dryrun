@@ -12,6 +12,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  pull-requests: write
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -117,7 +118,7 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
-      - name: Drafts as commit comment
+      - name: Drafts on merged PR (else commit comment)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -127,7 +128,8 @@ jobs:
           BASE_URL: ${{ needs.build.outputs.base_url }}
         run: |
           python3 <<'PY'
-          import json, os, pathlib, subprocess, re, textwrap, urllib.request
+          import json, os, pathlib, re, urllib.request, base64
+
           repo = os.environ["REPO"]
           sha = os.environ["SHA"]
           token = os.environ["GH_TOKEN"]
@@ -141,20 +143,38 @@ jobs:
                   base = str(b).strip().rstrip("/")
           except Exception:
               pass
+
           touched = [s for s in os.environ.get("TOUCHED", "").split() if s]
           if not touched:
               print("no touched slugs")
               raise SystemExit(0)
-          # Checkout not present in deploy job — fetch demo.json via API
-          def get_file(path):
+
+          def api(url, method="GET", data=None):
               req = urllib.request.Request(
-                  f"https://api.github.com/repos/{repo}/contents/{path}?ref={sha}",
-                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
               )
               with urllib.request.urlopen(req) as r:
-                  data = json.load(r)
-              import base64
+                  body = r.read()
+                  return json.loads(body) if body else None
+
+          def get_file(path):
+              data = api(f"https://api.github.com/repos/{repo}/contents/{path}?ref={sha}")
               return base64.b64decode(data["content"]).decode("utf-8", "replace")
+
+          def file_exists(path):
+              try:
+                  get_file(path)
+                  return True
+              except Exception:
+                  return False
+
           bodies = []
           for slug in touched:
               title, pitch = slug.replace("-", " ").title(), ""
@@ -166,28 +186,69 @@ jobs:
                   try:
                       html = get_file(f"demos/{slug}/index.html")
                       m = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
-                      if m: title = m.group(1).strip()
-                      m = re.search(r'<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']', html, re.I | re.S)
-                      if m: pitch = m.group(1).strip()
+                      if m:
+                          title = m.group(1).strip()
+                      m = re.search(
+                          r'<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']',
+                          html,
+                          re.I | re.S,
+                      )
+                      if m:
+                          pitch = m.group(1).strip()
                   except Exception:
                       pass
               live = f"{base}/{slug}/"
-              video = f"{base}/{slug}/demo.mp4"
-              linkedin = f"New demo: {title}.\n\n{pitch}\n\nTry it: {live}\n20-second video: {video}\n\nNothing has been posted.\n\n#buildinpublic".strip()
-              x = f"New demo: {title}. {live}"
-              body = "\n".join([
+              has_video = file_exists(f"demos/{slug}/demo.mp4")
+              video = f"{base}/{slug}/demo.mp4" if has_video else ""
+              lines = [
                   f"<!-- host-and-post:drafts:{slug} -->",
                   f"### Live: {live}",
-                  f"**Video:** {video}",
-                  "",
+              ]
+              if has_video:
+                  lines += [f"**Video:** {video}", ""]
+              else:
+                  lines += [""]
+              lines += [
                   "> **Nothing has been posted.** Drafts only — edit and publish yourself if you want.",
                   "",
+              ]
+              linkedin_bits = [f"New demo: {title}.", ""]
+              if pitch:
+                  linkedin_bits += [pitch, ""]
+              linkedin_bits += [f"Try it: {live}"]
+              if has_video:
+                  linkedin_bits.append(f"20-second video: {video}")
+              linkedin_bits += ["", "Nothing has been posted.", "", "#buildinpublic"]
+              linkedin = "\n".join(linkedin_bits).strip()
+              x = f"New demo: {title}. {live}"
+              lines += [
                   "<details open><summary>LinkedIn draft</summary>",
-                  "", "```text", linkedin, "```", "</details>", "",
+                  "",
+                  "```text",
+                  linkedin,
+                  "```",
+                  "</details>",
+                  "",
                   f"<details open><summary>X draft ({len(x)}/280)</summary>",
-                  "", "```text", x, "```", "</details>",
-              ])
-              bodies.append(body)
-          pathlib.Path("/tmp/commit_comment.md").write_text("\n\n---\n\n".join(bodies))
+                  "",
+                  "```text",
+                  x,
+                  "```",
+                  "</details>",
+              ]
+              bodies.append("\n".join(lines))
+
+          pathlib.Path("/tmp/result_comment.md").write_text("\n\n---\n\n".join(bodies))
+          print("wrote /tmp/result_comment.md")
           PY
-          gh api -X POST "repos/${REPO}/commits/${SHA}/comments" -f body="$(cat /tmp/commit_comment.md)"
+          # Prefer the merged PR; fall back to a commit comment (direct pushes / no PR).
+          PR=$(gh api "repos/${REPO}/commits/${SHA}/pulls" \
+            --jq '[.[] | select(.merged_at != null)][0].number // empty')
+          BODY=$(cat /tmp/result_comment.md)
+          if [ -n "$PR" ]; then
+            echo "Posting drafts on PR #$PR"
+            gh api -X POST "repos/${REPO}/issues/${PR}/comments" -f body="$BODY"
+          else
+            echo "No merged PR for $SHA; posting commit comment"
+            gh api -X POST "repos/${REPO}/commits/${SHA}/comments" -f body="$BODY"
+          fi
