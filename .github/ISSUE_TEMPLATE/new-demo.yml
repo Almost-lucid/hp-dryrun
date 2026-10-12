@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         One short idea. Keep it small — one screen, one main action.
-        Prefer pasting a complete page below (from ChatGPT). Leave Paste your page empty only if you want GitHub to try generating one.
+        Paste a complete page below (from ChatGPT). The build needs that field filled in.
   - type: input
     id: idea
     attributes:

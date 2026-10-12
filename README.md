@@ -100,7 +100,7 @@ Leave empty unless you use a custom domain.
 
 ## Good to know
 - Everything published on Pages is public. Placeholder data only.
-- Prefer pasting a complete page into **Paste your page** on the New demo form (ChatGPT prompt above). If that field is empty, the workflow tries GitHub Models; when Models isn’t available it says so in a comment.
+- Paste a complete page into **Paste your page** on the New demo form (ChatGPT prompt above). If that field is empty, the workflow asks you to paste and stops.
 - Template edits need the `protocol` label to pass `slug-guard`.
 - Run locally: `npm install && npx playwright install --with-deps chromium`, then `node tools/smoke_record.mjs <slug>` (needs `ffmpeg`).
 
