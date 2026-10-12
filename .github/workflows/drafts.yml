@@ -9,18 +9,19 @@ permissions:
   pages: read
 jobs:
   drafts:
+    # Prefer deploy.yml's commit comment for paste/build pushes.
+    # Still post on a merged PR when one exists (protocol / agent PR path).
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7
         with:
           script: |
-            // Template-filled drafts only. No model, no API key, and nothing is posted anywhere.
             const sha = context.payload.workflow_run.head_sha;
             const { owner, repo } = context.repo;
             const prs = (await github.rest.repos.listPullRequestsAssociatedWithCommit({ owner, repo, commit_sha: sha })).data
               .filter(p => p.merged_at);
-            if (!prs.length) { core.info(`No merged PR for ${sha}; nothing to draft.`); return; }
+            if (!prs.length) { core.info(`No merged PR for ${sha}; deploy.yml posts commit comments.`); return; }
             const pr = prs[0];
             const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: pr.number });
             const slugs = [...new Set(files.filter(f => f.status === 'added' && /^demos\/[^/]+\/index\.html$/.test(f.filename))
@@ -41,41 +42,30 @@ jobs:
 
             for (const slug of slugs) {
               let meta = { title: slug, pitch: '' };
-              try { meta = { ...meta, ...JSON.parse(await read(`demos/${slug}/demo.json`)) }; } catch {}
+              try { meta = { ...meta, ...JSON.parse(await read(`demos/${slug}/demo.json`)) }; } catch {
+                try {
+                  const html = await read(`demos/${slug}/index.html`);
+                  const tm = html.match(/<title>(.*?)<\/title>/i); if (tm) meta.title = tm[1].trim();
+                  const dm = html.match(/<meta\s+name=["']description["']\s+content=["'](.*?)["']/i); if (dm) meta.pitch = dm[1].trim();
+                } catch {}
+              }
               const live = `${base}/${slug}/`;
               const video = `${base}/${slug}/demo.mp4`;
               const linkedin = [
-                `New demo: ${meta.title}.`,
-                '',
-                `${meta.pitch}`,
-                '',
-                `It started as one idea written in a GitHub issue. An AI coding agent built it and opened a pull request, ` +
-                `then an automatic check loaded it on a phone-sized screen, failed on any errors or sideways scrolling, and recorded a short video. ` +
-                `A human watched that video and approved it before it went live, and a human (me) is the one posting this.`,
-                '',
-                `It's a small static page with placeholder data, so there's nothing to sign up for. Have a play and tell me what you'd change.`,
-                '',
-                `Try it: ${live}`,
-                `20-second video: ${video}`,
-                '',
-                '#buildinpublic #prototyping',
+                `New demo: ${meta.title}.`, '', `${meta.pitch}`, '',
+                `Try it: ${live}`, `20-second video: ${video}`, '',
+                'Nothing has been posted.', '', '#buildinpublic',
               ].join('\n');
-              let x = `New demo: ${meta.title}. ${meta.pitch} One idea → AI agent → auto-checked → human-approved. ${live}`;
-              if (x.length > 280) x = `New demo: ${meta.title}. Idea → AI agent → checked → human-approved. ${live}`;
+              let x = `New demo: ${meta.title}. ${meta.pitch} ${live}`;
+              if (x.length > 280) x = `New demo: ${meta.title}. ${live}`;
               const body = [
                 `<!-- host-and-post:drafts:${slug} -->`,
-                `### 📝 Post drafts for \`${slug}\` (gate 2)`,
-                `**Live:** ${live}  ·  **Video:** ${video}`,
+                `### Live: ${live}`,
+                `**Video:** ${video}`, '',
+                '> **Nothing has been posted.** Drafts only. Edit them, then publish yourself — or don't.',
                 '',
-                '> **Nothing has been posted.** These are drafts only. Edit them, then publish them yourself on LinkedIn and X (attach the video for best reach). Not posting is a fine answer too.',
-                '',
-                '<details open><summary>LinkedIn draft</summary>',
-                '',
-                '```text', linkedin, '```', '</details>',
-                '',
-                `<details open><summary>X draft (${x.length}/280)</summary>`,
-                '',
-                '```text', x, '```', '</details>',
+                '<details open><summary>LinkedIn draft</summary>', '', '```text', linkedin, '```', '</details>', '',
+                `<details open><summary>X draft (${x.length}/280)</summary>`, '', '```text', x, '```', '</details>',
               ].join('\n');
               await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
             }

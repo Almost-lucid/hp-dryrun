@@ -1,0 +1,25 @@
+name: New demo
+description: Describe a small demo and GitHub will try to build it
+title: "New demo: "
+labels: ["build"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One short idea. Keep it small — one screen, one main action.
+  - type: input
+    id: idea
+    attributes:
+      label: Your idea
+      description: A few words. Example — tip splitter
+      placeholder: tip splitter
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What should it do?
+      description: What someone does on the page, and what they see.
+      placeholder: Enter a bill, pick a tip, split between people.
+    validations:
+      required: true

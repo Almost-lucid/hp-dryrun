@@ -119,13 +119,16 @@ for (const slug of slugs) {
   try {
     const { steps } = readSteps(slug);
     r.errors = await smoke(browser, url, outDir);
-    if (!r.errors.length) {
-      await record(browser, url, steps, outDir, { width: 1280, height: 720 }, 'video', false);
-      await record(browser, url, steps, outDir, MOBILE, 'video-portrait', true);
+    // SOFT=1: still record/publish even when smoke finds problems (caller reports the fail).
+    if (!r.errors.length || process.env.SOFT === '1') {
+      try {
+        await record(browser, url, steps, outDir, { width: 1280, height: 720 }, 'video', false);
+        await record(browser, url, steps, outDir, MOBILE, 'video-portrait', true);
+      } catch (re) { r.errors.push(`record: ${re.message || re}`); }
     }
   } catch (e) { r.errors.push(String(e.message || e)); }
   r.ok = r.errors.length === 0;
-  if (!r.ok) failed = true;
+  if (!r.ok && process.env.SOFT !== '1') failed = true;
   console.log(`${r.ok ? 'PASS' : 'FAIL'} ${slug}${r.errors.map((e) => `\n  - ${e}`).join('')}`);
   results.push(r);
 }

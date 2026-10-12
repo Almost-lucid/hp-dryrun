@@ -1,8 +1,0 @@
-{
-  "title": "Pomodoro timer",
-  "pitch": "A no-signup 25/5 focus timer for your phone, with start, pause and reset.",
-  "steps": [
-    { "action": "click", "selector": "#start" },
-    { "action": "wait", "ms": 6000 }
-  ]
-}

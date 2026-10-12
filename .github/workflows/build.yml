@@ -1,0 +1,345 @@
+name: build
+on:
+  issues:
+    types: [opened, labeled]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  issues: write
+  models: read
+concurrency:
+  group: build-${{ github.event.issue.number }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: >-
+      github.event.issue.user.login == github.repository_owner &&
+      (contains(github.event.issue.labels.*.name, 'build') ||
+       startsWith(github.event.issue.title, 'New demo:'))
+    runs-on: ubuntu-latest
+    outputs:
+      slug: ${{ steps.idea.outputs.slug }}
+      skip: ${{ steps.finalize.outputs.skip }}
+      smoke_ok: ${{ steps.smoke.outputs.smoke_ok }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Comment Building
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: gh issue comment "$ISSUE" -R "$REPO" --body "Building…"
+
+      - name: Parse idea from issue
+        id: idea
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          python3 <<'PY'
+          import os, re, pathlib
+          title = os.environ.get("ISSUE_TITLE") or ""
+          body = os.environ.get("ISSUE_BODY") or ""
+          def field(name):
+              m = re.search(rf"###\s*{re.escape(name)}\s*\n+(.+?)(?=\n###|\Z)", body, re.S | re.I)
+              return (m.group(1).strip() if m else "").strip()
+          idea = field("Your idea") or re.sub(r"^New demo:\s*", "", title, flags=re.I).strip() or "demo"
+          what = field("What should it do?") or body.strip() or idea
+          pathlib.Path("/tmp/idea.txt").write_text(idea)
+          pathlib.Path("/tmp/what.txt").write_text(what)
+          slug = re.sub(r"[^a-z0-9]+", "-", idea.lower()).strip("-")
+          slug = re.sub(r"-+", "-", slug)[:48].strip("-") or "demo"
+          if not re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", slug):
+              slug = "demo"
+          base, n = slug, 2
+          while pathlib.Path(f"demos/{slug}/index.html").exists():
+              slug = f"{base}-{n}"
+              n += 1
+          pathlib.Path("/tmp/slug.txt").write_text(slug)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as o:
+              o.write(f"slug={slug}\n")
+          print(f"slug={slug}")
+          PY
+
+      - name: Call GitHub Models
+        id: model
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          python3 <<'PY'
+          import json, pathlib
+          system_text = """You build ONE small static demo as a single complete index.html file.
+          Rules (follow exactly):
+          - One screen; one main action.
+          - Plain HTML, CSS and JS only. No frameworks, no build step, no CDN, no external scripts or fonts or images.
+          - No backend, accounts, API keys or personal data. Placeholder/sample data only.
+          - Under ~300 lines. Works at phone width (375px), no horizontal scroll.
+          - Include <meta charset>, viewport meta, a <title>, and <meta name="description" content="...">.
+          - Inline all CSS and JS. No <script src=...>. No fetch/XHR/WebSocket to other domains.
+          - box-sizing:border-box; fluid widths.
+          - Output ONLY the raw HTML document starting with <!doctype html>. No markdown fences, no commentary.
+          """
+          idea = pathlib.Path("/tmp/idea.txt").read_text()
+          what = pathlib.Path("/tmp/what.txt").read_text()
+          slug = pathlib.Path("/tmp/slug.txt").read_text()
+          user = f"Idea: {idea}\nWhat it should do: {what}\nSuggested title/slug theme: {slug}\nReturn one complete index.html."
+          pathlib.Path("/tmp/payload.json").write_text(json.dumps({
+            "model": "openai/gpt-4.1-mini",
+            "temperature": 0.4,
+            "max_tokens": 4096,
+            "messages": [
+              {"role": "system", "content": system_text},
+              {"role": "user", "content": user},
+            ],
+          }))
+          PY
+          HTTP=$(curl -sS -o /tmp/model_out.txt -w "%{http_code}" \
+            -X POST "https://models.github.ai/inference/chat/completions" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            --data-binary @/tmp/payload.json)
+          echo "Models HTTP ${HTTP}"
+          head -c 240 /tmp/model_out.txt; echo
+          if [ "$HTTP" = "429" ]; then
+            gh issue comment "$ISSUE" -R "$REPO" --body "GitHub's free AI limit hit, try again in an hour."
+            echo "skip=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 <<'PY'
+          import json, pathlib, os, re
+          raw = pathlib.Path("/tmp/model_out.txt").read_text(errors="replace").strip()
+          fatal = ""
+          content = ""
+          if raw == "OK" or not raw:
+              fatal = ("GitHub Models isn't available here (the free one-click build needs it). "
+                       "Use the paste fallback in the README, or try again later.")
+          else:
+              try:
+                  data = json.loads(raw)
+              except Exception as e:
+                  fatal = f"Could not read the model response ({e})."
+                  data = None
+              if data is not None:
+                  err = data.get("error") if isinstance(data, dict) else None
+                  if err:
+                      msg = err.get("message") if isinstance(err, dict) else str(err)
+                      fatal = f"Model error: {msg}"
+                  else:
+                      try:
+                          content = data["choices"][0]["message"]["content"]
+                      except Exception:
+                          fatal = "Model response had no content."
+          if not fatal:
+              content = content.strip()
+              content = re.sub(r"^```(?:html)?\s*", "", content)
+              content = re.sub(r"\s*```$", "", content)
+              if "<html" not in content.lower() and "<!doctype" not in content.lower():
+                  fatal = "Model did not return an HTML page."
+              else:
+                  if not content.lower().lstrip().startswith("<!doctype"):
+                      content = "<!doctype html>\n" + content
+                  pathlib.Path("/tmp/index.html").write_text(content)
+          pathlib.Path("/tmp/fatal.txt").write_text(fatal)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as o:
+              o.write(f"skip={'yes' if fatal else 'no'}\n")
+          print("skip=", "yes" if fatal else "no", fatal[:120] if fatal else "")
+          PY
+          if [ -s /tmp/fatal.txt ]; then
+            gh issue comment "$ISSUE" -R "$REPO" --body "$(cat /tmp/fatal.txt)"
+          fi
+
+      - name: Guard and write demo
+        id: guard
+        if: steps.model.outputs.skip != 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          SLUG: ${{ steps.idea.outputs.slug }}
+        run: |
+          python3 <<'PY'
+          import os, pathlib, re, json
+          html = pathlib.Path("/tmp/index.html").read_text(errors="replace")
+          slug = os.environ["SLUG"]
+          reasons = []
+          if re.search(r"<script[^>]+src\s*=", html, re.I):
+              reasons.append("external <script src> is not allowed")
+          if re.search(r"\bfetch\s*\(|XMLHttpRequest|navigator\.sendBeacon|WebSocket\s*\(", html):
+              reasons.append("network calls (fetch/XHR/WebSocket) are not allowed")
+          lines = html.count("\n") + 1
+          if lines > 320:
+              reasons.append(f"page is too long ({lines} lines; keep under ~300)")
+          pathlib.Path("/tmp/guard_fail.txt").write_text("; ".join(reasons))
+          if reasons:
+              raise SystemExit(0)
+          d = pathlib.Path("demos") / slug
+          d.mkdir(parents=True, exist_ok=True)
+          (d / "index.html").write_text(html)
+          title_m = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
+          desc_m = re.search(r'<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']', html, re.I | re.S)
+          title = (title_m.group(1).strip() if title_m else slug)
+          pitch = (desc_m.group(1).strip() if desc_m else title)
+          (d / "demo.json").write_text(json.dumps({"title": title, "pitch": pitch, "steps": []}, indent=2) + "\n")
+          print("wrote", d)
+          PY
+          if [ -s /tmp/guard_fail.txt ]; then
+            gh issue comment "$ISSUE" -R "$REPO" --body "Could not publish: $(cat /tmp/guard_fail.txt)."
+            echo "skip=yes" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "skip=no" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes'
+        with:
+          node-version: 20
+
+      - name: Smoke and record
+        id: smoke
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes'
+        env:
+          SLUG: ${{ steps.idea.outputs.slug }}
+          SOFT: "1"
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y ffmpeg >/dev/null || true
+          SOFT=1 node tools/smoke_record.mjs "$SLUG" || true
+          python3 <<'PY'
+          import json, os, pathlib
+          slug = os.environ["SLUG"]
+          ok = False
+          try:
+              data = json.loads(pathlib.Path("out/results.json").read_text())
+              row = next((r for r in data if r.get("slug") == slug), None)
+              ok = bool(row and row.get("ok"))
+          except Exception as e:
+              print("results missing", e)
+          pathlib.Path("/tmp/smoke_ok.txt").write_text("yes" if ok else "no")
+          print("smoke_ok", ok)
+          PY
+          mkdir -p "demos/$SLUG"
+          cp -f "out/$SLUG/video.mp4" "demos/$SLUG/demo.mp4" 2>/dev/null || true
+          cp -f "out/$SLUG/video-portrait.mp4" "demos/$SLUG/demo-portrait.mp4" 2>/dev/null || true
+          cp -f "out/$SLUG/screenshot.png" "demos/$SLUG/screenshot.png" 2>/dev/null || true
+          echo "smoke_ok=$(cat /tmp/smoke_ok.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Commit demo to main
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes'
+        env:
+          SLUG: ${{ steps.idea.outputs.slug }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "demos/$SLUG"
+          if git diff --cached --quiet; then
+            echo "No changes"; exit 0
+          fi
+          git commit -m "Demo: $SLUG (from issue #$ISSUE)"
+          git push origin HEAD:main
+
+      - name: Build site folder
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          SLUG: ${{ steps.idea.outputs.slug }}
+        run: |
+          if ! gh api "repos/${REPO}/pages" >/dev/null 2>&1; then
+            gh issue comment "$ISSUE" -R "$REPO" --body "GitHub Pages is off. Turn on Settings → Pages → Source: GitHub Actions, then re-run this workflow."
+            echo "skip=yes" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          rm -rf _site && cp -r demos _site
+          node tools/build_index.mjs _site
+
+      - uses: actions/configure-pages@v5
+        id: pages
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes' && env.skip != 'yes'
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.model.outputs.skip != 'yes' && steps.guard.outputs.skip != 'yes' && env.skip != 'yes'
+        with:
+          path: _site
+
+      - name: Finalize skip flag
+        id: finalize
+        if: always()
+        env:
+          MODEL_SKIP: ${{ steps.model.outputs.skip }}
+          GUARD_SKIP: ${{ steps.guard.outputs.skip }}
+          ENV_SKIP: ${{ env.skip }}
+        run: |
+          if [ "$MODEL_SKIP" = "yes" ] || [ "$GUARD_SKIP" = "yes" ] || [ "$ENV_SKIP" = "yes" ]; then
+            echo "skip=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment on unexpected failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh issue comment "$ISSUE" -R "$REPO" --body "Build failed unexpectedly. Open the Actions tab for this run to see the log, then try again or use the paste fallback in the README."
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.skip != 'yes' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment live link and drafts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          SLUG: ${{ needs.build.outputs.slug }}
+          SMOKE_OK: ${{ needs.build.outputs.smoke_ok }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          python3 <<'PY'
+          import os, pathlib
+          slug = os.environ["SLUG"]
+          base = (os.environ.get("PAGE_URL") or "").rstrip("/")
+          if not base:
+              owner, repo = os.environ["REPO"].split("/", 1)
+              base = f"https://{owner.lower()}.github.io/{repo}"
+          live = f"{base}/{slug}/"
+          video = f"{base}/{slug}/demo.mp4"
+          title = slug.replace("-", " ").title()
+          pitch = os.environ.get("ISSUE_PITCH", "")
+          smoke_ok = os.environ.get("SMOKE_OK") == "yes"
+          linkedin = f"New demo: {title}.\n\n{pitch}\n\nTry it: {live}\n20-second video: {video}\n\nNothing has been posted.\n\n#buildinpublic".strip()
+          x = f"New demo: {title}. {live}"
+          lines = [f"### Live: {live}", f"**Video:** {video}", ""]
+          if not smoke_ok:
+              lines += ["⚠️ It failed its automated check, but it's published anyway so you can see it.", ""]
+          lines += [
+              "> **Nothing has been posted.** Drafts only — edit and publish yourself if you want.",
+              "",
+              "<details open><summary>LinkedIn draft</summary>",
+              "", "```text", linkedin, "```", "</details>", "",
+              f"<details open><summary>X draft ({len(x)}/280)</summary>",
+              "", "```text", x, "```", "</details>",
+          ]
+          pathlib.Path("/tmp/result_comment.md").write_text("\n".join(lines))
+          PY
+          gh issue comment "$ISSUE" -R "$REPO" --body-file /tmp/result_comment.md
